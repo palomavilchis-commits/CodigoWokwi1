@@ -1,0 +1,201 @@
+// Declración de Bibliotecas
+#include "DHTesp.h"
+#include <WiFi.h>
+#include <AdafruitIO_WiFi.h>
+//
+// Pin
+const int DHT_PIN = 15;
+const int STATUS_LED_PIN = 2;
+
+// WiFi simulación
+#define WIFI_SSID "Wokwi-GUEST"
+#define WIFI_PASS ""
+
+//Credenciales de Adafruit
+#define IO_USERNAME "PONAQUI TU NOMBRE"
+#define IO_KEY "PON AQUI TU KEY DE ADAFRUIT"
+
+// Inicializando el sensor
+DHTesp dhtSensor;
+AdafruitIO_WiFi io(IO_USERNAME, IO_KEY, WIFI_SSID, WIFI_PASS);
+
+// Adafruit IO feeds
+AdafruitIO_Feed *temperature_feed = io.feed("temperature");
+AdafruitIO_Feed *humidity_feed = io.feed("humidity");
+
+// Viariables de tiempo
+unsigned long lastSensorRead = 0;
+unsigned long lastCloudUpdate = 0;
+const unsigned long SENSOR_INTERVAL = 2000;  // Keep your 2-second interval
+const unsigned long CLOUD_INTERVAL = 10000;  // Send to cloud every 10 seconds
+
+// Datos
+TempAndHumidity currentData;
+TempAndHumidity previousData;
+
+void setup() {
+  Serial.begin(115200);
+  
+  // Led indicador
+  pinMode(STATUS_LED_PIN, OUTPUT);
+  digitalWrite(STATUS_LED_PIN, HIGH); 
+  
+  dhtSensor.setup(DHT_PIN, DHTesp::DHT22);
+  
+  Serial.println("=== DHT22 Adafruit IO Monitor ===");
+  Serial.println("Based on your original DHT22 code");
+  Serial.println();
+  
+  // Conectando a Adafruit IO
+  Serial.println("Connecting to Adafruit IO...");
+  io.connect();
+  
+ 
+  while(io.status() < AIO_CONNECTED) {
+    Serial.print(".");
+    delay(500);
+  }
+  
+  Serial.println();
+  Serial.println(io.statusText());
+  Serial.println("Conexión exitosa");
+  
+  // Led indica conexion
+  blinkLED(3);
+  
+  Serial.println(" Comenzando Lectura...");
+  Serial.println("Lectura cada 2 segundos");
+  Serial.println("Datos actualizados cada 10segundos");
+  Serial.println("---");
+}
+
+void loop() {
+  // conexion vigente
+  io.run();
+  
+  unsigned long currentTime = millis();
+  
+
+  if (currentTime - lastSensorRead >= SENSOR_INTERVAL) {
+    readSensorData();
+    lastSensorRead = currentTime;
+  }
+  
+  // Envio de datos a Adafruit
+  if (currentTime - lastCloudUpdate >= CLOUD_INTERVAL) {
+    sendToAdafruitIO();
+    checkAlerts();
+    lastCloudUpdate = currentTime;
+  }
+  
+  delay(100);
+}
+
+void readSensorData() {
+  // Almacena lectura previa
+  previousData = currentData;
+  
+  // Se obtine nueva lectura
+  currentData = dhtSensor.getTempAndHumidity();
+  
+  // Muestra resultados
+  Serial.println("Temp: " + String(currentData.temperature, 2) + "°C");
+  Serial.println("Humedad: " + String(currentData.humidity, 1) + "%");
+  
+  // detección de errores
+  if (isnan(currentData.temperature) || isnan(currentData.humidity)) {
+    Serial.println(" Error de lectura!");
+    digitalWrite(STATUS_LED_PIN, HIGH); 
+  } else {
+
+    quickBlink();
+  }
+  
+  Serial.println("---");
+}
+
+void sendToAdafruitIO() {
+  // Solo envía lecturas válidas
+  if (!isnan(currentData.temperature) && !isnan(currentData.humidity)) {
+    Serial.println(" Enviando datos a Adafruit IO...");
+    
+   
+    temperature_feed->save(currentData.temperature);
+    Serial.println(" Temperatura enviada: " + String(currentData.temperature, 2) + "°C");
+    
+    
+    humidity_feed->save(currentData.humidity);
+    Serial.println("Humedad Enviada: " + String(currentData.humidity, 1) + "%");
+    
+ 
+    blinkLED(1);
+    Serial.println("Datos enviados correctamente");
+    
+  } else {
+    Serial.println(" Lectura incorrecta");
+    digitalWrite(STATUS_LED_PIN, HIGH);
+    delay(200);
+    digitalWrite(STATUS_LED_PIN, LOW);
+  }
+  
+  Serial.println("---");
+}
+
+void checkAlerts() {
+  if (isnan(currentData.temperature) || isnan(currentData.humidity)) {
+    return; // Evita el envío de datos incorrectos o no válidos
+  }
+  
+  
+  // Cambios abruptos
+  if (!isnan(previousData.temperature)) {
+    float tempChange = abs(currentData.temperature - previousData.temperature);
+    if (tempChange > 3.0) {
+      Serial.println("Cambio de temperatura: " + String(tempChange, 1) + "°C");
+    }
+  }
+}
+
+// LED control functions
+void quickBlink() {
+  digitalWrite(STATUS_LED_PIN, LOW);
+  delay(50);
+  digitalWrite(STATUS_LED_PIN, HIGH);
+  delay(50);
+  digitalWrite(STATUS_LED_PIN, LOW);
+}
+
+void blinkLED(int times) {
+  for (int i = 0; i < times; i++) {
+    digitalWrite(STATUS_LED_PIN, HIGH);
+    delay(300);
+    digitalWrite(STATUS_LED_PIN, LOW);
+    delay(300);
+  }
+}
+
+void alertBlink() {
+  for (int i = 0; i < 5; i++) {
+    digitalWrite(STATUS_LED_PIN, HIGH);
+    delay(100);
+    digitalWrite(STATUS_LED_PIN, LOW);
+    delay(100);
+  }
+}
+
+// Información detallada
+void printSystemStatus() {
+  Serial.println("=== System Status ===");
+  Serial.println("Current Temperature: " + String(currentData.temperature, 2) + "°C");
+  Serial.println("Current Humidity: " + String(currentData.humidity, 1) + "%");
+  
+  if (!isnan(previousData.temperature)) {
+    Serial.println("Temperature Change: " + String(currentData.temperature - previousData.temperature, 2) + "°C");
+    Serial.println("Humidity Change: " + String(currentData.humidity - previousData.humidity, 1) + "%");
+  }
+  
+  Serial.println("Adafruit IO Status: " + String(io.statusText()));
+  Serial.println("WiFi Status: " + String(WiFi.status() == WL_CONNECTED ? "Connected" : "Disconnected"));
+  Serial.println("Free Heap: " + String(ESP.getFreeHeap()) + " bytes");
+  Serial.println("====================");
+}
