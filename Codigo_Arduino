@@ -43,7 +43,6 @@ void setup() {
   dhtSensor.setup(DHT_PIN, DHTesp::DHT22);
   
   Serial.println("=== DHT22 Adafruit IO Monitor ===");
-  Serial.println("Based on your original DHT22 code");
   Serial.println();
   
   // Conectando a Adafruit IO
